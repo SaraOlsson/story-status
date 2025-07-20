@@ -659,7 +659,7 @@ export default function Editor() {
   return (
     <div className="h-full flex flex-col">
       {/* Editor Header */}
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-20">
         <div className="flex h-14 items-center px-6">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
@@ -697,10 +697,10 @@ export default function Editor() {
         </div>
       </div>
 
-      {/* Marking Controls - Only show in Marking Mode when text is selected */}
-      {isStatusMode && selectedText && (
-        <div className="border-b bg-muted/50 p-2">
-          <div className="flex items-center gap-2 max-w-4xl mx-auto">
+      {/* Marking Controls - Always reserve space, sticky when visible */}
+      <div className="border-b bg-muted/50 p-2 h-12 flex items-center sticky top-14 z-10 backdrop-blur supports-[backdrop-filter]:bg-muted/80">
+        {isStatusMode && selectedText ? (
+          <div className="flex items-center gap-2 max-w-4xl mx-auto w-full">
             <span className="text-sm text-muted-foreground">Mark selection as:</span>
             <Button 
               variant="outline" 
@@ -742,8 +742,14 @@ export default function Editor() {
               <X className="h-4 w-4" />
             </Button>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="flex items-center gap-2 max-w-4xl mx-auto w-full">
+            <span className="text-sm text-muted-foreground">
+              {isStatusMode ? "Select text to mark it..." : "Enable marking mode to mark text"}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Editor Content */}
       <div className="flex-1 p-6">

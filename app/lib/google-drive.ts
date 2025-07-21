@@ -265,8 +265,7 @@ class GoogleDriveService {
         await this.drive.files.update({
           fileId,
           requestBody: {
-            name: fileName,
-            parents: [targetFolderId]
+            name: fileName
           },
           media: {
             mimeType: 'application/json',

@@ -19,10 +19,22 @@ import {
   Cloud,
   Upload,
   Download,
-  LogOut
+  LogOut,
+  Loader2
 } from "lucide-react"
 import { sampleText } from "./sample-text"
 import { useGoogleDrive } from "@/hooks/use-google-drive"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { toast } from "sonner"
 
 type MarkingStatus = "ideas" | "draft" | "done"
 
@@ -36,8 +48,8 @@ interface EditorState {
 
 export default function Editor() {
   const [editorState, setEditorState] = useState<EditorState>({ 
-    text: sampleText, 
-    markings: new Array(sampleText.length).fill(0) // Initialize with all unmarked
+    text: "", 
+    markings: [] // Start with no markings
   })
   const [selectedText, setSelectedText] = useState<{ start: number; end: number; text: string } | null>(null)
   const [wordCount, setWordCount] = useState(0)
@@ -45,7 +57,13 @@ export default function Editor() {
   const [isStatusMode, setIsStatusMode] = useState(false)
   const [useHighlighting, setUseHighlighting] = useState(false)
   const [openPopover, setOpenPopover] = useState<string | null>(null)
-  const [storyTitle, setStoryTitle] = useState("Untitled Story")
+  const [showNameDialog, setShowNameDialog] = useState(false)
+  const [pendingProjectName, setPendingProjectName] = useState("")
+  const [savedProjectName, setSavedProjectName] = useState<string | null>(null)
+  const [showLoadDialog, setShowLoadDialog] = useState(false)
+  const [loadStoriesList, setLoadStoriesList] = useState<any[]>([])
+  const [selectedStoryTitle, setSelectedStoryTitle] = useState<string>("")
+  const [isLoadingStories, setIsLoadingStories] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -689,94 +707,71 @@ export default function Editor() {
   }
 
   const handleSave = async () => {
-    console.log("Save button clicked")
-    console.log("Is authenticated:", isAuthenticated)
-    console.log("Drive loading:", driveLoading)
-    console.log("Drive error:", driveError)
-    
     if (!isAuthenticated) {
-      // If not authenticated, prompt user to connect Google Drive
       if (confirm("You need to connect to Google Drive first. Connect now?")) {
         await authenticate()
       }
       return
     }
+    setPendingProjectName(savedProjectName || "")
+    setShowNameDialog(true)
+  }
 
-    // Ask user where to save
-    const folderName = prompt("Enter folder name (or leave empty for 'Story Status Editor'):", "Story Status Editor") || "Story Status Editor"
-    
-    console.log("Saving story with data:", {
-      title: storyTitle,
-      contentLength: editorState.text.length,
-      markingsLength: editorState.markings.length,
-      folderName
-    })
-
+  const handleConfirmSave = async () => {
+    const folderName = "Story Status Editor"
+    const projectName = pendingProjectName.trim() || "Untitled Story"
     try {
       const success = await saveStory({
-        title: storyTitle,
+        title: projectName,
         content: editorState.text,
         markings: editorState.markings,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }, folderName)
-
-      console.log("Save result:", success)
-
       if (success) {
+        setSavedProjectName(projectName)
+        setShowNameDialog(false)
         alert(`Story saved successfully to Google Drive folder: ${folderName}!`)
       } else {
         alert("Failed to save story. Please try again.")
       }
     } catch (error) {
-      console.error("Save error:", error)
       alert("Failed to save story. Please try again.")
     }
   }
 
   const handleLoadStories = async () => {
-    console.log("Load stories button clicked")
-    console.log("Is authenticated:", isAuthenticated)
-    
     if (!isAuthenticated) {
       if (confirm("Connect to Google Drive to load your stories?")) {
         await authenticate()
       }
       return
     }
-
+    setShowLoadDialog(true)
+    setIsLoadingStories(true)
     try {
-      console.log("Attempting to load stories...")
-      // Load stories from the app's dedicated folder
       const stories = await loadStories()
-      console.log("Stories loaded:", stories.length)
-      console.log("Story titles:", stories.map(s => s.title))
-
-      if (stories.length > 0) {
-        const storyNames = stories.map(s => s.title).join('\n')
-        const selectedStory = prompt(`Available stories:\n${storyNames}\n\nEnter the exact title of the story to load:`)
-        
-        if (selectedStory) {
-          const story = stories.find(s => s.title === selectedStory)
-          if (story) {
-            console.log("Loading story:", story.title)
-            setEditorState({
-              text: story.content,
-              markings: story.markings as MarkingValue[]
-            })
-            setStoryTitle(story.title)
-            alert("Story loaded successfully!")
-          } else {
-            alert("Story not found. Please check the title and try again.")
-          }
-        }
-      } else {
-        console.log("No stories found in folder")
-        alert("No stories found in the 'Story Status Editor' folder. Create a new story and save it to get started!")
-      }
+      setLoadStoriesList(stories)
+      setSelectedStoryTitle("")
+      setIsLoadingStories(false)
     } catch (error) {
-      console.error("Load error:", error)
+      setIsLoadingStories(false)
       alert("Failed to load stories. Please try again.")
+    }
+  }
+
+  const handleConfirmLoad = () => {
+    const story = loadStoriesList.find(s => s.title === selectedStoryTitle)
+    if (story) {
+      setEditorState({
+        text: story.content,
+        markings: story.markings as MarkingValue[]
+      })
+      setSavedProjectName(story.title)
+      setShowLoadDialog(false)
+      toast("Story loaded successfully!")
+    } else {
+      alert("Please select a story to load.")
     }
   }
 
@@ -813,18 +808,12 @@ export default function Editor() {
             <FileText className="h-5 w-5" />
             <h1 className="text-lg font-semibold">Editor</h1>
           </div>
-          
-          {/* Story Title Input */}
-          <div className="ml-6 flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Title:</span>
-            <input
-              type="text"
-              value={storyTitle}
-              onChange={(e) => setStoryTitle(e.target.value)}
-              className="px-2 py-1 text-sm border rounded bg-background"
-              placeholder="Enter story title..."
-            />
-          </div>
+          {savedProjectName && (
+            <div className="ml-6 flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Title:</span>
+              <span className="px-2 py-1 text-sm border rounded bg-background cursor-default select-text opacity-80">{savedProjectName}</span>
+            </div>
+          )}
           
           <div className="ml-auto flex items-center gap-2">
             <Separator orientation="vertical" className="h-4" />
@@ -874,7 +863,6 @@ export default function Editor() {
             </Button>
             <Button 
               onClick={() => {
-                console.log("Save button clicked - testing")
                 handleSave()
               }} 
               size="sm"
@@ -1001,6 +989,65 @@ export default function Editor() {
           </div>
         </div>
       )}
+
+      {/* Project Name Dialog */}
+      <Sheet open={showNameDialog} onOpenChange={setShowNameDialog}>
+        <SheetContent className="max-w-md mx-auto top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 fixed !h-auto">
+          <SheetHeader>
+            <SheetTitle>Set Project Name</SheetTitle>
+          </SheetHeader>
+          <div className="p-4">
+            <Input
+              autoFocus
+              value={pendingProjectName}
+              onChange={e => setPendingProjectName(e.target.value)}
+              placeholder="Enter project name..."
+              className="w-full"
+              onKeyDown={e => { if (e.key === 'Enter') handleConfirmSave() }}
+            />
+          </div>
+          <SheetFooter>
+            <Button onClick={handleConfirmSave} className="w-full">Save</Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+     {/* Load Story Dialog */}
+     <Sheet open={showLoadDialog} onOpenChange={setShowLoadDialog}>
+       <SheetContent className="max-w-md mx-auto top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 fixed !h-auto">
+         <SheetHeader>
+           <SheetTitle>Load Story</SheetTitle>
+         </SheetHeader>
+         <div className="p-4">
+           {isLoadingStories ? (
+             <div className="flex flex-col items-center justify-center min-h-[120px]">
+               <Loader2 className="animate-spin mb-2" />
+               <span>Loading stories...</span>
+             </div>
+           ) : (
+             <>
+               <Select value={selectedStoryTitle} onValueChange={setSelectedStoryTitle}>
+                 <SelectTrigger className="w-full">
+                   <SelectValue placeholder="Select a story to load" />
+                 </SelectTrigger>
+                 <SelectContent>
+                   <SelectGroup>
+                     {loadStoriesList.length === 0 && (
+                       <SelectItem value="" disabled>No stories found</SelectItem>
+                     )}
+                     {loadStoriesList.map(story => (
+                       <SelectItem key={story.title} value={story.title}>{story.title}</SelectItem>
+                     ))}
+                   </SelectGroup>
+                 </SelectContent>
+               </Select>
+             </>
+           )}
+         </div>
+         <SheetFooter>
+           <Button onClick={handleConfirmLoad} className="w-full" disabled={!selectedStoryTitle || isLoadingStories}>Load</Button>
+         </SheetFooter>
+       </SheetContent>
+     </Sheet>
     </div>
   )
 }

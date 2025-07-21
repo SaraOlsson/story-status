@@ -97,6 +97,46 @@ interface EditorState {
 4. User clicks a status button to mark the selection
 5. Selection is cleared and controls disappear
 
+### 6. Google Drive Integration
+
+#### Authentication
+- **OAuth 2.0 Flow**: Secure authentication with Google Drive API
+- **Token Management**: Automatic token storage and refresh
+- **User Consent**: Users grant access to create/edit files in a dedicated folder
+- **Scope Limitation**: Only accesses files in the "Story Status Editor" folder
+
+#### Storage System
+- **Dedicated Folder**: Creates "Story Status Editor" folder in user's Google Drive
+- **Privacy-Focused**: Only accesses files within the app's dedicated folder
+- **JSON File Format**: Stories saved as structured JSON files
+- **Metadata Tracking**: Includes creation and modification timestamps
+- **File Naming**: Uses story title as filename with .json extension
+
+#### File Structure
+```json
+{
+  "title": "Story Title",
+  "content": "The story text content...",
+  "markings": [0, 1, 1, 2, 0, 3, 0, ...],
+  "createdAt": "2024-01-15T10:30:00Z",
+  "updatedAt": "2024-01-15T11:45:00Z"
+}
+```
+
+#### User Interface Integration
+- **Connect Button**: Prominent "Connect Drive" button when not authenticated
+- **Save/Load Controls**: Integrated into the main editor header
+- **Status Indicators**: Shows authentication status and loading states
+- **Error Handling**: Displays user-friendly error messages
+- **Story Title Input**: Allows users to set custom titles for saved stories
+
+#### Workflow
+1. **Initial Setup**: User clicks "Connect Drive" to authenticate
+2. **Saving**: User sets title and clicks "Save" to store in the dedicated folder
+3. **Loading**: User clicks "Load" to see available stories from the app folder
+4. **Privacy**: App only accesses files within its dedicated "Story Status Editor" folder
+5. **Disconnection**: User can disconnect to revoke access
+
 ## Technical Architecture
 
 ### Data Structure

@@ -15,9 +15,14 @@ import {
   PenTool,
   CheckCircle,
   MousePointer,
-  Type
+  Type,
+  Cloud,
+  Upload,
+  Download,
+  LogOut
 } from "lucide-react"
 import { sampleText } from "./sample-text"
+import { useGoogleDrive } from "@/hooks/use-google-drive"
 
 type MarkingStatus = "ideas" | "draft" | "done"
 
@@ -40,11 +45,49 @@ export default function Editor() {
   const [isStatusMode, setIsStatusMode] = useState(false)
   const [useHighlighting, setUseHighlighting] = useState(false)
   const [openPopover, setOpenPopover] = useState<string | null>(null)
+  const [storyTitle, setStoryTitle] = useState("Untitled Story")
   const editorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  // Initialize with sample markings
+  // Google Drive integration
+  const {
+    isAuthenticated,
+    isLoading: driveLoading,
+    error: driveError,
+    authenticate,
+    loadStoredTokens,
+    saveStory,
+    loadStories,
+    searchExistingStories,
+    signOut
+  } = useGoogleDrive()
+
+  // Initialize with sample markings and load stored tokens
   useEffect(() => {
+    // Load stored Google Drive tokens
+    loadStoredTokens()
+    
+    // Check for OAuth callback parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const success = urlParams.get('success');
+    const error = urlParams.get('error');
+    const tokens = urlParams.get('tokens');
+    
+    if (success === 'auth_success' && tokens) {
+      try {
+        const tokenData = JSON.parse(decodeURIComponent(tokens));
+        // Store tokens and update authentication state
+        localStorage.setItem('googleDriveTokens', JSON.stringify(tokenData));
+        window.location.search = ''; // Clear URL parameters
+      } catch (e) {
+        console.error('Failed to parse tokens:', e);
+      }
+    } else if (error) {
+      console.error('OAuth error:', error);
+      alert('Authentication failed. Please try again.');
+      window.location.search = ''; // Clear URL parameters
+    }
+    
     // Add some sample markings to demonstrate the system
     const newMarkings = [...editorState.markings]
     
@@ -67,7 +110,7 @@ export default function Editor() {
     }
     
     setEditorState(prev => ({ ...prev, markings: newMarkings }))
-  }, [])
+  }, [loadStoredTokens])
 
   // Update word and character counts
   useEffect(() => {
@@ -178,7 +221,7 @@ export default function Editor() {
         newMarkings[i] = statusValue
       }
     }
-    
+
     setEditorState(prev => ({
       ...prev,
       markings: newMarkings
@@ -485,169 +528,256 @@ export default function Editor() {
         const popoverKey = `${currentStart}-${editorState.text.length}`
         const segmentStart = currentStart
         const segmentEnd = editorState.text.length
-        
-        if (useHighlighting) {
-          result.push(
+      
+      if (useHighlighting) {
+        result.push(
             <Popover key={popoverKey} open={openPopover === popoverKey} onOpenChange={(open) => setOpenPopover(open ? popoverKey : null)}>
-              <PopoverTrigger asChild>
-                <span
+            <PopoverTrigger asChild>
+              <span
                   className={`${getStatusHighlightColor(currentStatus)} px-1 py-0.5 rounded-sm hover:${getStatusHighlightColorDark(currentStatus)} transition-colors inline-block ${isStatusMode ? 'cursor-pointer' : 'cursor-text'}`}
-                >
+              >
                   {segment}
-                </span>
-              </PopoverTrigger>
-              <PopoverContent className="w-64">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
+              </span>
+            </PopoverTrigger>
+            <PopoverContent className="w-64">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
                     {getStatusIcon(currentStatus)}
                     <span className="font-medium">{getStatusLabel(currentStatus)}</span>
-                  </div>
+                </div>
                   <p className="text-sm text-muted-foreground">{segment}</p>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Change status to:</div>
-                    <div className="grid grid-cols-1 gap-1">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="justify-start"
+                <Separator />
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Change status to:</div>
+                  <div className="grid grid-cols-1 gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="justify-start"
                         onClick={() => {
                           console.log('Ideas button clicked for last segment (highlight):', { segmentStart, segmentEnd })
                           updateMarkingStatus(segmentStart, segmentEnd, "ideas")
                         }}
-                      >
-                        <Lightbulb className="h-4 w-4 mr-2" />
-                        Ideas
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="justify-start"
+                    >
+                      <Lightbulb className="h-4 w-4 mr-2" />
+                      Ideas
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="justify-start"
                         onClick={() => {
                           console.log('Draft button clicked for last segment (highlight):', { segmentStart, segmentEnd })
                           updateMarkingStatus(segmentStart, segmentEnd, "draft")
                         }}
-                      >
-                        <PenTool className="h-4 w-4 mr-2" />
-                        Draft
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="justify-start"
+                    >
+                      <PenTool className="h-4 w-4 mr-2" />
+                      Draft
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="justify-start"
                         onClick={() => {
                           console.log('Done button clicked for last segment (highlight):', { segmentStart, segmentEnd })
                           updateMarkingStatus(segmentStart, segmentEnd, "done")
                         }}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Done
-                      </Button>
-                    </div>
-                    <Separator />
-                    <Button 
-                      variant="destructive" 
-                      size="sm" 
-                      className="w-full"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Done
+                    </Button>
+                  </div>
+                  <Separator />
+                  <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    className="w-full"
                       onClick={() => {
                         console.log('Remove button clicked for last segment (highlight):', { segmentStart, segmentEnd })
                         removeMarking(segmentStart, segmentEnd)
                       }}
-                    >
-                      <X className="h-4 w-4 mr-2" />
-                      Remove Marking
-                    </Button>
-                  </div>
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Remove Marking
+                  </Button>
                 </div>
-              </PopoverContent>
-            </Popover>
-          )
-        } else {
-          result.push(
+              </div>
+            </PopoverContent>
+          </Popover>
+        )
+      } else {
+        result.push(
             <Popover key={popoverKey} open={openPopover === popoverKey} onOpenChange={(open) => setOpenPopover(open ? popoverKey : null)}>
-              <PopoverTrigger asChild>
-                <span
+            <PopoverTrigger asChild>
+              <span
                   className={`${getStatusColor(currentStatus)} border-2 border-dashed px-1 rounded hover:opacity-80 inline-block ${isStatusMode ? 'cursor-pointer' : 'cursor-text'}`}
-                >
+              >
                   {segment}
-                </span>
-              </PopoverTrigger>
-              <PopoverContent className="w-64">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
+              </span>
+            </PopoverTrigger>
+            <PopoverContent className="w-64">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
                     {getStatusIcon(currentStatus)}
                     <span className="font-medium">{getStatusLabel(currentStatus)}</span>
-                  </div>
+                </div>
                   <p className="text-sm text-muted-foreground">{segment}</p>
-                  <Separator />
-                  <div className="space-y-2">
-                    <div className="text-sm font-medium">Change status to:</div>
-                    <div className="grid grid-cols-1 gap-1">
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="justify-start"
+                <Separator />
+                <div className="space-y-2">
+                  <div className="text-sm font-medium">Change status to:</div>
+                  <div className="grid grid-cols-1 gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="justify-start"
                         onClick={() => {
                           console.log('Ideas button clicked for last segment (border):', { segmentStart, segmentEnd })
                           updateMarkingStatus(segmentStart, segmentEnd, "ideas")
                         }}
-                      >
-                        <Lightbulb className="h-4 w-4 mr-2" />
-                        Ideas
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="justify-start"
+                    >
+                      <Lightbulb className="h-4 w-4 mr-2" />
+                      Ideas
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="justify-start"
                         onClick={() => {
                           console.log('Draft button clicked for last segment (border):', { segmentStart, segmentEnd })
                           updateMarkingStatus(segmentStart, segmentEnd, "draft")
                         }}
-                      >
-                        <PenTool className="h-4 w-4 mr-2" />
-                        Draft
-                      </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="justify-start"
+                    >
+                      <PenTool className="h-4 w-4 mr-2" />
+                      Draft
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="justify-start"
                         onClick={() => {
                           console.log('Done button clicked for last segment (border):', { segmentStart, segmentEnd })
                           updateMarkingStatus(segmentStart, segmentEnd, "done")
                         }}
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Done
-                      </Button>
-                    </div>
-                    <Separator />
-                    <Button 
-                      variant="destructive" 
-                      size="sm" 
-                      className="w-full"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Done
+                    </Button>
+                  </div>
+                  <Separator />
+                  <Button 
+                    variant="destructive" 
+                    size="sm" 
+                    className="w-full"
                       onClick={() => {
                         console.log('Remove button clicked for last segment (border):', { segmentStart, segmentEnd })
                         removeMarking(segmentStart, segmentEnd)
                       }}
-                    >
-                      <X className="h-4 w-4 mr-2" />
-                      Remove Marking
-                    </Button>
-                  </div>
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Remove Marking
+                  </Button>
                 </div>
-              </PopoverContent>
-            </Popover>
-          )
-        }
+              </div>
+            </PopoverContent>
+          </Popover>
+        )
+      }
       }
     }
 
     return result
   }
 
-  const handleSave = () => {
-    console.log("Saving content:", editorState.text)
-    console.log("Saving markings:", editorState.markings)
+  const handleSave = async () => {
+    console.log("Save button clicked")
+    console.log("Is authenticated:", isAuthenticated)
+    console.log("Drive loading:", driveLoading)
+    console.log("Drive error:", driveError)
+    
+    if (!isAuthenticated) {
+      // If not authenticated, prompt user to connect Google Drive
+      if (confirm("You need to connect to Google Drive first. Connect now?")) {
+        await authenticate()
+      }
+      return
+    }
+
+    // Ask user where to save
+    const folderName = prompt("Enter folder name (or leave empty for 'Story Status Editor'):", "Story Status Editor") || "Story Status Editor"
+    
+    console.log("Saving story with data:", {
+      title: storyTitle,
+      contentLength: editorState.text.length,
+      markingsLength: editorState.markings.length,
+      folderName
+    })
+
+    try {
+      const success = await saveStory({
+        title: storyTitle,
+        content: editorState.text,
+        markings: editorState.markings,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }, folderName)
+
+      console.log("Save result:", success)
+
+      if (success) {
+        alert(`Story saved successfully to Google Drive folder: ${folderName}!`)
+      } else {
+        alert("Failed to save story. Please try again.")
+      }
+    } catch (error) {
+      console.error("Save error:", error)
+      alert("Failed to save story. Please try again.")
+    }
+  }
+
+  const handleLoadStories = async () => {
+    console.log("Load stories button clicked")
+    console.log("Is authenticated:", isAuthenticated)
+    
+    if (!isAuthenticated) {
+      if (confirm("Connect to Google Drive to load your stories?")) {
+        await authenticate()
+      }
+      return
+    }
+
+    try {
+      console.log("Attempting to load stories...")
+      // Load stories from the app's dedicated folder
+      const stories = await loadStories()
+      console.log("Stories loaded:", stories.length)
+      console.log("Story titles:", stories.map(s => s.title))
+
+      if (stories.length > 0) {
+        const storyNames = stories.map(s => s.title).join('\n')
+        const selectedStory = prompt(`Available stories:\n${storyNames}\n\nEnter the exact title of the story to load:`)
+        
+        if (selectedStory) {
+          const story = stories.find(s => s.title === selectedStory)
+          if (story) {
+            console.log("Loading story:", story.title)
+            setEditorState({
+              text: story.content,
+              markings: story.markings as MarkingValue[]
+            })
+            setStoryTitle(story.title)
+            alert("Story loaded successfully!")
+          } else {
+            alert("Story not found. Please check the title and try again.")
+          }
+        }
+      } else {
+        console.log("No stories found in folder")
+        alert("No stories found in the 'Story Status Editor' folder. Create a new story and save it to get started!")
+      }
+    } catch (error) {
+      console.error("Load error:", error)
+      alert("Failed to load stories. Please try again.")
+    }
   }
 
   // Calculate marking statistics
@@ -658,20 +788,80 @@ export default function Editor() {
 
   return (
     <div className="h-full flex flex-col">
+      {/* Error Display */}
+      {driveError && (
+        <div className="bg-red-50 border-b border-red-200 px-6 py-2">
+          <div className="flex items-center gap-2 text-sm text-red-700">
+            <Cloud className="h-4 w-4" />
+            <span>Google Drive Error: {driveError}</span>
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={() => window.location.reload()}
+              className="ml-auto text-red-700 hover:text-red-800"
+            >
+              Retry
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Editor Header */}
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-20">
+      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-14 items-center px-6">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
             <h1 className="text-lg font-semibold">Editor</h1>
           </div>
           
+          {/* Story Title Input */}
+          <div className="ml-6 flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Title:</span>
+            <input
+              type="text"
+              value={storyTitle}
+              onChange={(e) => setStoryTitle(e.target.value)}
+              className="px-2 py-1 text-sm border rounded bg-background"
+              placeholder="Enter story title..."
+            />
+          </div>
+          
           <div className="ml-auto flex items-center gap-2">
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              <span>{wordCount} words</span>
-              <span>{charCount} characters</span>
-              <span>{markingCount} marked characters</span>
-            </div>
+            <Separator orientation="vertical" className="h-4" />
+            
+            {/* Google Drive Controls */}
+            {isAuthenticated ? (
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleLoadStories}
+                  disabled={driveLoading}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Load Story
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={signOut}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Disconnect
+                </Button>
+              </div>
+            ) : (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={authenticate}
+                disabled={driveLoading}
+              >
+                <Cloud className="h-4 w-4 mr-2" />
+                Connect Drive
+              </Button>
+            )}
+            
             <Separator orientation="vertical" className="h-4" />
             
             <Button 
@@ -683,24 +873,24 @@ export default function Editor() {
               {isStatusMode ? "Marking Mode ON" : "Marking Mode OFF"}
             </Button>
             <Button 
-              variant={useHighlighting ? "default" : "outline"}
+              onClick={() => {
+                console.log("Save button clicked - testing")
+                handleSave()
+              }} 
               size="sm"
-              onClick={() => setUseHighlighting(!useHighlighting)}
+              disabled={!isAuthenticated || driveLoading}
             >
-              {useHighlighting ? "Highlighting ON" : "Borders ON"}
-            </Button>
-            <Button onClick={handleSave} size="sm">
               <Save className="h-4 w-4 mr-2" />
-              Save
+              {isAuthenticated ? "Save" : "Connect to Save"}
             </Button>
           </div>
         </div>
       </div>
 
-      {/* Marking Controls - Always reserve space, sticky when visible */}
-      <div className="border-b bg-muted/50 p-2 h-12 flex items-center sticky top-14 z-10 backdrop-blur supports-[backdrop-filter]:bg-muted/80">
-        {isStatusMode && selectedText ? (
-          <div className="flex items-center gap-2 max-w-4xl mx-auto w-full">
+      {/* Marking Controls - Only show in Marking Mode when text is selected */}
+      {isStatusMode && selectedText && (
+        <div className="border-b bg-muted/50 p-2">
+          <div className="flex items-center gap-2 max-w-4xl mx-auto">
             <span className="text-sm text-muted-foreground">Mark selection as:</span>
             <Button 
               variant="outline" 
@@ -742,34 +932,28 @@ export default function Editor() {
               <X className="h-4 w-4" />
             </Button>
           </div>
-        ) : (
-          <div className="flex items-center gap-2 max-w-4xl mx-auto w-full">
-            <span className="text-sm text-muted-foreground">
-              {isStatusMode ? "Select text to mark it..." : "Enable marking mode to mark text"}
-            </span>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Editor Content */}
       <div className="flex-1 p-6">
         <div className="max-w-4xl mx-auto">
           {isStatusMode ? (
             // Marking mode - show rendered text with markings
-            <div 
+          <div 
               ref={editorRef}
               className="min-h-[calc(100vh-200px)] text-lg leading-relaxed p-8 border-0 focus-visible:ring-0 whitespace-pre-wrap select-text"
-              style={{ 
-                fontFamily: 'var(--font-geist-sans)',
-                fontSize: '1.125rem',
-                lineHeight: '1.75'
-              }}
-              onMouseUp={handleTextSelection}
-              onKeyUp={handleTextSelection}
+            style={{ 
+              fontFamily: 'var(--font-geist-sans)',
+              fontSize: '1.125rem',
+              lineHeight: '1.75'
+            }}
+            onMouseUp={handleTextSelection}
+            onKeyUp={handleTextSelection}
               onSelect={handleTextSelection}
-            >
-              {renderTextWithMarkings()}
-            </div>
+          >
+            {renderTextWithMarkings()}
+          </div>
           ) : (
             // Edit mode - show textarea for editing
             <Textarea
@@ -809,6 +993,10 @@ export default function Editor() {
                 <CheckCircle className="h-4 w-4 text-green-600" />
                 <span>Done: {doneCount} characters</span>
               </div>
+            </div>
+            <div className="flex justify-end gap-4 text-sm text-muted-foreground mt-4">
+              <span>{wordCount} words</span>
+              <span>{charCount} characters</span>
             </div>
           </div>
         </div>

@@ -64,6 +64,7 @@ export default function Editor() {
   const [loadStoriesList, setLoadStoriesList] = useState<any[]>([])
   const [selectedStoryTitle, setSelectedStoryTitle] = useState<string>("")
   const [isLoadingStories, setIsLoadingStories] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -720,6 +721,7 @@ export default function Editor() {
   const handleConfirmSave = async () => {
     const folderName = "Story Status Editor"
     const projectName = pendingProjectName.trim() || "Untitled Story"
+    setIsSaving(true)
     try {
       const success = await saveStory({
         title: projectName,
@@ -731,13 +733,14 @@ export default function Editor() {
       if (success) {
         setSavedProjectName(projectName)
         setShowNameDialog(false)
-        alert(`Story saved successfully to Google Drive folder: ${folderName}!`)
+        toast("Story saved successfully!")
       } else {
-        alert("Failed to save story. Please try again.")
+        toast.error("Failed to save story. Please try again.")
       }
     } catch (error) {
-      alert("Failed to save story. Please try again.")
+      toast.error("Failed to save story. Please try again.")
     }
+    setIsSaving(false)
   }
 
   const handleLoadStories = async () => {
@@ -866,7 +869,7 @@ export default function Editor() {
                 handleSave()
               }} 
               size="sm"
-              disabled={!isAuthenticated || driveLoading}
+              disabled={!isAuthenticated || driveLoading || isSaving}
             >
               <Save className="h-4 w-4 mr-2" />
               {isAuthenticated ? "Save" : "Connect to Save"}
@@ -1007,7 +1010,10 @@ export default function Editor() {
             />
           </div>
           <SheetFooter>
-            <Button onClick={handleConfirmSave} className="w-full">Save</Button>
+            <Button onClick={handleConfirmSave} className="w-full" disabled={isSaving}>
+              {isSaving ? <Loader2 className="animate-spin w-4 h-4 mr-2" /> : null}
+              Save
+            </Button>
           </SheetFooter>
         </SheetContent>
       </Sheet>

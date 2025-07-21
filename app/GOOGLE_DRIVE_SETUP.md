@@ -27,9 +27,6 @@ This guide will help you set up Google Drive integration for the Story Status Ed
 5. Click "Create"
 6. Copy the **Client ID** and **Client Secret**
 
-550246904526-v7tt9nrvgrrtni0pg72rpsfrvd4avj0n.apps.googleusercontent.com
-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
-
 ## Step 3: Configure Environment Variables
 
 1. Copy `env.example` to `.env.local`:

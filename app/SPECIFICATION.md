@@ -63,6 +63,19 @@ interface EditorState {
 - Subtle background colors
 - Yellow/Blue/Green highlighting
 
+### Chapter-Based Pagination and Marking (Implementation Detail)
+
+The editor supports chapter-based pagination, allowing users to view and edit one chapter at a time. Chapters are detected by parsing the text for lines starting with `## `. When pagination is enabled:
+
+- **Only the current chapter's text and markings are rendered or editable at a time.**
+- **Pagination Controls**: Users can navigate between chapters using a pagination UI.
+- **Markings Array**: The full markings array is always kept in sync with the full text, and each chapter view operates on a slice of this array.
+- **Global Indexing**: All marking operations (add, update, remove) are performed using global indices in the markings array, not local chapter indices. When a marking operation is triggered in paginated mode, the local index is offset by the chapter's start index to compute the correct global index.
+- **Editing**: When editing a chapter, only the markings for the affected chapter range are updated, and all other markings remain untouched and correctly aligned.
+- **Debugging**: The UI can display the global indices and marking values for the current chapter to aid in debugging and verification.
+
+This approach ensures that marking and editing operations are robust, precise, and always affect the intended part of the document, regardless of which chapter is currently being viewed or edited.
+
 ### 4. Mode System
 
 #### Edit Mode (Default)

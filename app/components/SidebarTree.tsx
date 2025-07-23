@@ -13,31 +13,17 @@ import {
   SidebarGroupContent,
   SidebarGroupLabel,
 } from "@/components/ui/sidebar";
-
-type TreeNode = {
-  id: string;
-  label: string;
-  children?: TreeNode[];
-};
+import { useEditorContext, TreeNode } from "@/components/EditorContext";
 
 interface SidebarTreeProps {
   onSelect: (id: string) => void;
   selectedId: string;
+  treeData?: TreeNode[];
 }
 
-const treeData: TreeNode[] = [
-  { id: "chapter1", label: "Chapter 1" },
-  { 
-    id: "chapter2", 
-    label: "Chapter 2", 
-    children: [
-      { id: "section1", label: "Section 1" },
-      { id: "section2", label: "Section 2" }
-    ]
-  }
-];
-
-export function SidebarTree({ onSelect, selectedId }: SidebarTreeProps) {
+export function SidebarTree({ onSelect, selectedId, treeData: propTreeData }: SidebarTreeProps) {
+  const { chapterTree } = useEditorContext?.() || { chapterTree: [] };
+  const treeData = propTreeData || chapterTree || [];
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
   const toggleNode = (nodeId: string) => {

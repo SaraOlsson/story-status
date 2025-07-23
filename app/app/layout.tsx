@@ -6,6 +6,7 @@ import { SidebarProvider, SidebarTrigger, SidebarInset } from "@/components/ui/s
 import { cookies } from "next/headers";
 import { Toaster } from "@/components/ui/sonner"
 import { ReactNode } from "react"
+import { EditorContextProvider } from "@/components/EditorContext";
 
 interface RootLayoutProps {
   children: ReactNode
@@ -32,13 +33,15 @@ export default function RootLayout({ children }: RootLayoutProps) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <SidebarProvider defaultOpen={true}>
-          <AppSidebar/>
-          <SidebarInset>
-            <SidebarTrigger />
-            {children}
-          </SidebarInset>
-        </SidebarProvider>
+        <EditorContextProvider>
+          <SidebarProvider defaultOpen={true}>
+            <AppSidebar/>
+            <SidebarInset>
+              <SidebarTrigger />
+              {children}
+            </SidebarInset>
+          </SidebarProvider>
+        </EditorContextProvider>
         <Toaster />
       </body>
     </html>

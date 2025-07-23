@@ -35,6 +35,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "sonner"
+import { useEditorContext, TreeNode } from "@/components/EditorContext";
+import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationNext } from "@/components/ui/pagination"
 
 type MarkingStatus = "ideas" | "draft" | "done"
 
@@ -44,6 +46,76 @@ type MarkingValue = 0 | 1 | 2 | 3 // 0=unmarked, 1=ideas, 2=draft, 3=done
 interface EditorState {
   text: string
   markings: MarkingValue[] // Array of same length as text, each index corresponds to character
+}
+
+function parseChaptersFromText(text: string): TreeNode[] {
+  // Simple parser: finds all lines starting with '## '
+  const lines = text.split(/\r?\n/);
+  const chapters: TreeNode[] = [];
+  let lastChapter = null;
+  lines.forEach((line, idx) => {
+    const match = line.match(/^##\s+(.*)/);
+    if (match) {
+      const chapter: TreeNode = {
+        id: `chapter-${idx}`,
+        label: match[1],
+        children: [],
+      };
+      chapters.push(chapter);
+      lastChapter = chapter;
+    }
+  });
+  return chapters;
+}
+
+// Replace updateMarkingsForChapterEdit with a robust version
+function updateMarkingsForChapterEdit(
+  oldText: string,
+  newText: string,
+  oldMarkings: MarkingValue[],
+  chapterStart: number,
+  chapterEnd: number,
+  newChapterText: string
+) {
+  // Markings before the chapter
+  const before = oldMarkings.slice(0, chapterStart);
+  // Markings after the chapter (will be offset if chapter length changes)
+  const after = oldMarkings.slice(chapterEnd);
+
+  // Old and new chapter text
+  const oldChapterText = oldText.slice(chapterStart, chapterEnd);
+  const oldChapterMarkings = oldMarkings.slice(chapterStart, chapterEnd);
+
+  // Build new markings for the chapter
+  let i = 0, j = 0;
+  let newChapterMarkings: MarkingValue[] = [];
+  while (i < oldChapterText.length && j < newChapterText.length) {
+    if (oldChapterText[i] === newChapterText[j]) {
+      newChapterMarkings.push(oldChapterMarkings[i]);
+      i++;
+      j++;
+    } else {
+      if (oldChapterText.length < newChapterText.length) {
+        // Insertion
+        const inherit = j > 0 ? newChapterMarkings[j - 1] : 0;
+        newChapterMarkings.push(inherit);
+        j++;
+      } else {
+        // Deletion
+        i++;
+      }
+    }
+  }
+  // Handle any remaining insertions
+  while (j < newChapterText.length) {
+    const inherit = j > 0 ? newChapterMarkings[j - 1] : 0;
+    newChapterMarkings.push(inherit);
+    j++;
+  }
+  // No need to handle deletions at the end, as we just don't add them
+
+  // Combine
+  return before.concat(newChapterMarkings, after);
 }
 
 export default function Editor() {
@@ -67,6 +139,11 @@ export default function Editor() {
   const [isSaving, setIsSaving] = useState(false)
   const editorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const { setEditorText, setChapterTree, editorText, chapterTree } = useEditorContext();
+  const [currentChapter, setCurrentChapter] = useState(0);
+
+  const EDITOR_TEXT_KEY = "storyStatus_editorText";
+  const EDITOR_MARKINGS_KEY = "storyStatus_editorMarkings";
 
   // Google Drive integration
   const {
@@ -129,6 +206,8 @@ export default function Editor() {
     }
     
     setEditorState(prev => ({ ...prev, markings: newMarkings }))
+    setEditorText(editorState.text);
+    setChapterTree(parseChaptersFromText(editorState.text));
   }, [loadStoredTokens])
 
   // Update word and character counts
@@ -136,6 +215,28 @@ export default function Editor() {
     setCharCount(editorState.text.length)
     setWordCount(editorState.text.trim() ? editorState.text.trim().split(/\s+/).length : 0)
   }, [editorState.text])
+
+  // Restore from localStorage on mount
+  useEffect(() => {
+    const savedText = localStorage.getItem(EDITOR_TEXT_KEY);
+    const savedMarkings = localStorage.getItem(EDITOR_MARKINGS_KEY);
+    if (savedText) {
+      setEditorState(prev => ({ ...prev, text: savedText }));
+      setEditorText(savedText);
+      setChapterTree(parseChaptersFromText(savedText));
+    }
+    if (savedMarkings) {
+      try {
+        setEditorState(prev => ({ ...prev, markings: JSON.parse(savedMarkings) }));
+      } catch {}
+    }
+  }, []);
+
+  // Save to localStorage on every edit
+  useEffect(() => {
+    localStorage.setItem(EDITOR_TEXT_KEY, editorState.text);
+    localStorage.setItem(EDITOR_MARKINGS_KEY, JSON.stringify(editorState.markings));
+  }, [editorState.text, editorState.markings]);
 
   const handleTextChange = (newText: string) => {
     // When text changes, we need to update the markings array
@@ -186,6 +287,9 @@ export default function Editor() {
       text: newText, 
       markings: newMarkings 
     }))
+    setEditorText(newText);
+    setChapterTree(parseChaptersFromText(newText));
+    // localStorage will be updated by useEffect
   }
 
   const handleTextSelection = () => {
@@ -376,7 +480,9 @@ export default function Editor() {
             const popoverKey = `${currentStart}-${i}`
             const segmentStart = currentStart
             const segmentEnd = i
-            
+            // Offset for paginated mode
+            const globalStart = currentRange ? currentRange.start + segmentStart : segmentStart;
+            const globalEnd = currentRange ? currentRange.start + segmentEnd : segmentEnd;
             if (useHighlighting) {
               result.push(
                 <Popover key={popoverKey} open={openPopover === popoverKey} onOpenChange={(open) => setOpenPopover(open ? popoverKey : null)}>
@@ -403,8 +509,8 @@ export default function Editor() {
                             size="sm" 
                             className="justify-start"
                             onClick={() => {
-                              console.log('Ideas button clicked for segment (highlight):', { segmentStart, segmentEnd })
-                              updateMarkingStatus(segmentStart, segmentEnd, "ideas")
+                              console.log('Ideas button clicked for segment (highlight):', { globalStart, globalEnd })
+                              updateMarkingStatus(globalStart, globalEnd, "ideas")
                             }}
                           >
                             <Lightbulb className="h-4 w-4 mr-2" />
@@ -415,8 +521,8 @@ export default function Editor() {
                             size="sm" 
                             className="justify-start"
                             onClick={() => {
-                              console.log('Draft button clicked for segment (highlight):', { segmentStart, segmentEnd })
-                              updateMarkingStatus(segmentStart, segmentEnd, "draft")
+                              console.log('Draft button clicked for segment (highlight):', { globalStart, globalEnd })
+                              updateMarkingStatus(globalStart, globalEnd, "draft")
                             }}
                           >
                             <PenTool className="h-4 w-4 mr-2" />
@@ -427,8 +533,8 @@ export default function Editor() {
                             size="sm" 
                             className="justify-start"
                             onClick={() => {
-                              console.log('Done button clicked for segment (highlight):', { segmentStart, segmentEnd })
-                              updateMarkingStatus(segmentStart, segmentEnd, "done")
+                              console.log('Done button clicked for segment (highlight):', { globalStart, globalEnd })
+                              updateMarkingStatus(globalStart, globalEnd, "done")
                             }}
                           >
                             <CheckCircle className="h-4 w-4 mr-2" />
@@ -441,8 +547,8 @@ export default function Editor() {
                           size="sm" 
                           className="w-full"
                           onClick={() => {
-                            console.log('Remove button clicked for segment (highlight):', { segmentStart, segmentEnd })
-                            removeMarking(segmentStart, segmentEnd)
+                            console.log('Remove button clicked for segment (highlight):', { globalStart, globalEnd })
+                            removeMarking(globalStart, globalEnd)
                           }}
                         >
                           <X className="h-4 w-4 mr-2" />
@@ -479,8 +585,8 @@ export default function Editor() {
                             size="sm" 
                             className="justify-start"
                             onClick={() => {
-                              console.log('Ideas button clicked for segment (border):', { segmentStart, segmentEnd })
-                              updateMarkingStatus(segmentStart, segmentEnd, "ideas")
+                              console.log('Ideas button clicked for segment (border):', { globalStart, globalEnd })
+                              updateMarkingStatus(globalStart, globalEnd, "ideas")
                             }}
                           >
                             <Lightbulb className="h-4 w-4 mr-2" />
@@ -491,8 +597,8 @@ export default function Editor() {
                             size="sm" 
                             className="justify-start"
                             onClick={() => {
-                              console.log('Draft button clicked for segment (border):', { segmentStart, segmentEnd })
-                              updateMarkingStatus(segmentStart, segmentEnd, "draft")
+                              console.log('Draft button clicked for segment (border):', { globalStart, globalEnd })
+                              updateMarkingStatus(globalStart, globalEnd, "draft")
                             }}
                           >
                             <PenTool className="h-4 w-4 mr-2" />
@@ -503,8 +609,8 @@ export default function Editor() {
                             size="sm" 
                             className="justify-start"
                             onClick={() => {
-                              console.log('Done button clicked for segment (border):', { segmentStart, segmentEnd })
-                              updateMarkingStatus(segmentStart, segmentEnd, "done")
+                              console.log('Done button clicked for segment (border):', { globalStart, globalEnd })
+                              updateMarkingStatus(globalStart, globalEnd, "done")
                             }}
                           >
                             <CheckCircle className="h-4 w-4 mr-2" />
@@ -517,8 +623,8 @@ export default function Editor() {
                           size="sm" 
                           className="w-full"
                           onClick={() => {
-                            console.log('Remove button clicked for segment (border):', { segmentStart, segmentEnd })
-                            removeMarking(segmentStart, segmentEnd)
+                            console.log('Remove button clicked for segment (border):', { globalStart, globalEnd })
+                            removeMarking(globalStart, globalEnd)
                           }}
                         >
                           <X className="h-4 w-4 mr-2" />
@@ -547,7 +653,9 @@ export default function Editor() {
         const popoverKey = `${currentStart}-${editorState.text.length}`
         const segmentStart = currentStart
         const segmentEnd = editorState.text.length
-      
+        // Offset for paginated mode
+        const globalStart = currentRange ? currentRange.start + segmentStart : segmentStart;
+        const globalEnd = currentRange ? currentRange.start + segmentEnd : segmentEnd;
       if (useHighlighting) {
         result.push(
             <Popover key={popoverKey} open={openPopover === popoverKey} onOpenChange={(open) => setOpenPopover(open ? popoverKey : null)}>
@@ -574,8 +682,8 @@ export default function Editor() {
                       size="sm" 
                       className="justify-start"
                         onClick={() => {
-                          console.log('Ideas button clicked for last segment (highlight):', { segmentStart, segmentEnd })
-                          updateMarkingStatus(segmentStart, segmentEnd, "ideas")
+                          console.log('Ideas button clicked for last segment (highlight):', { globalStart, globalEnd })
+                          updateMarkingStatus(globalStart, globalEnd, "ideas")
                         }}
                     >
                       <Lightbulb className="h-4 w-4 mr-2" />
@@ -586,8 +694,8 @@ export default function Editor() {
                       size="sm" 
                       className="justify-start"
                         onClick={() => {
-                          console.log('Draft button clicked for last segment (highlight):', { segmentStart, segmentEnd })
-                          updateMarkingStatus(segmentStart, segmentEnd, "draft")
+                          console.log('Draft button clicked for last segment (highlight):', { globalStart, globalEnd })
+                          updateMarkingStatus(globalStart, globalEnd, "draft")
                         }}
                     >
                       <PenTool className="h-4 w-4 mr-2" />
@@ -598,8 +706,8 @@ export default function Editor() {
                       size="sm" 
                       className="justify-start"
                         onClick={() => {
-                          console.log('Done button clicked for last segment (highlight):', { segmentStart, segmentEnd })
-                          updateMarkingStatus(segmentStart, segmentEnd, "done")
+                          console.log('Done button clicked for last segment (highlight):', { globalStart, globalEnd })
+                          updateMarkingStatus(globalStart, globalEnd, "done")
                         }}
                     >
                       <CheckCircle className="h-4 w-4 mr-2" />
@@ -612,8 +720,8 @@ export default function Editor() {
                     size="sm" 
                     className="w-full"
                       onClick={() => {
-                        console.log('Remove button clicked for last segment (highlight):', { segmentStart, segmentEnd })
-                        removeMarking(segmentStart, segmentEnd)
+                        console.log('Remove button clicked for last segment (highlight):', { globalStart, globalEnd })
+                        removeMarking(globalStart, globalEnd)
                       }}
                   >
                     <X className="h-4 w-4 mr-2" />
@@ -650,8 +758,8 @@ export default function Editor() {
                       size="sm" 
                       className="justify-start"
                         onClick={() => {
-                          console.log('Ideas button clicked for last segment (border):', { segmentStart, segmentEnd })
-                          updateMarkingStatus(segmentStart, segmentEnd, "ideas")
+                          console.log('Ideas button clicked for last segment (border):', { globalStart, globalEnd })
+                          updateMarkingStatus(globalStart, globalEnd, "ideas")
                         }}
                     >
                       <Lightbulb className="h-4 w-4 mr-2" />
@@ -662,8 +770,8 @@ export default function Editor() {
                       size="sm" 
                       className="justify-start"
                         onClick={() => {
-                          console.log('Draft button clicked for last segment (border):', { segmentStart, segmentEnd })
-                          updateMarkingStatus(segmentStart, segmentEnd, "draft")
+                          console.log('Draft button clicked for last segment (border):', { globalStart, globalEnd })
+                          updateMarkingStatus(globalStart, globalEnd, "draft")
                         }}
                     >
                       <PenTool className="h-4 w-4 mr-2" />
@@ -674,8 +782,8 @@ export default function Editor() {
                       size="sm" 
                       className="justify-start"
                         onClick={() => {
-                          console.log('Done button clicked for last segment (border):', { segmentStart, segmentEnd })
-                          updateMarkingStatus(segmentStart, segmentEnd, "done")
+                          console.log('Done button clicked for last segment (border):', { globalStart, globalEnd })
+                          updateMarkingStatus(globalStart, globalEnd, "done")
                         }}
                     >
                       <CheckCircle className="h-4 w-4 mr-2" />
@@ -688,8 +796,8 @@ export default function Editor() {
                     size="sm" 
                     className="w-full"
                       onClick={() => {
-                        console.log('Remove button clicked for last segment (border):', { segmentStart, segmentEnd })
-                        removeMarking(segmentStart, segmentEnd)
+                        console.log('Remove button clicked for last segment (border):', { globalStart, globalEnd })
+                        removeMarking(globalStart, globalEnd)
                       }}
                   >
                     <X className="h-4 w-4 mr-2" />
@@ -706,6 +814,38 @@ export default function Editor() {
 
     return result
   }
+
+  // Calculate chapter ranges
+  function getChapterRanges(text: string) {
+    const lines = text.split(/\r?\n/);
+    const ranges = [];
+    let charIndex = 0;
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx];
+      const match = line.match(/^##\s+(.*)/);
+      if (match) {
+        if (ranges.length > 0) {
+          ranges[ranges.length - 1].end = charIndex - 1;
+        }
+        ranges.push({
+          id: `chapter-${idx}`,
+          label: match[1],
+          start: charIndex,
+          end: text.length, // will be set when next chapter is found
+        });
+      }
+      charIndex += line.length + 1; // +1 for newline
+    }
+    if (ranges.length > 0) {
+      ranges[ranges.length - 1].end = text.length;
+    }
+    return ranges;
+  }
+
+  const chapterRanges = getChapterRanges(editorState.text);
+  const currentRange = chapterRanges[currentChapter] || { start: 0, end: editorState.text.length };
+  const chapterText = editorState.text.substring(currentRange.start, currentRange.end);
+  const chapterMarkings = editorState.markings.slice(currentRange.start, currentRange.end);
 
   const handleSave = async () => {
     if (!isAuthenticated) {
@@ -770,6 +910,10 @@ export default function Editor() {
         text: story.content,
         markings: story.markings as MarkingValue[]
       })
+      setEditorText(story.content);
+      setChapterTree(parseChaptersFromText(story.content));
+      localStorage.setItem(EDITOR_TEXT_KEY, story.content);
+      localStorage.setItem(EDITOR_MARKINGS_KEY, JSON.stringify(story.markings));
       setSavedProjectName(story.title)
       setShowLoadDialog(false)
       toast("Story loaded successfully!")
@@ -805,7 +949,7 @@ export default function Editor() {
       )}
 
       {/* Editor Header */}
-      <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex h-14 items-center px-6">
           <div className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
@@ -878,51 +1022,103 @@ export default function Editor() {
         </div>
       </div>
 
-      {/* Marking Controls - Only show in Marking Mode when text is selected */}
-      {isStatusMode && selectedText && (
-        <div className="border-b bg-muted/50 p-2">
-          <div className="flex items-center gap-2 max-w-4xl mx-auto">
-            <span className="text-sm text-muted-foreground">Mark selection as:</span>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => addMarking("ideas")}
-              className="bg-purple-100 border-purple-300 hover:bg-purple-200"
-            >
-              <Lightbulb className="h-4 w-4 mr-2" />
-              Ideas
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => addMarking("draft")}
-              className="bg-blue-100 border-blue-300 hover:bg-blue-200"
-            >
-              <PenTool className="h-4 w-4 mr-2" />
-              Draft
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => addMarking("done")}
-              className="bg-green-100 border-green-300 hover:bg-green-200"
-            >
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Done
-            </Button>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => {
-                setSelectedText(null)
-                if (window.getSelection) {
-                  window.getSelection()?.removeAllRanges()
-                }
-              }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+      {/* Marking Controls - sticky and always reserves space */}
+      {isStatusMode && (
+        <div
+          className="sticky top-[56px] z-20 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 flex items-center min-h-[48px]"
+        >
+          {selectedText ? (
+            <div className="flex items-center gap-2 max-w-4xl mx-auto p-2 w-full">
+              <span className="text-sm text-muted-foreground">Mark selection as:</span>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => addMarking("ideas")}
+                className="bg-purple-100 border-purple-300 hover:bg-purple-200"
+              >
+                <Lightbulb className="h-4 w-4 mr-2" />
+                Ideas
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => addMarking("draft")}
+                className="bg-blue-100 border-blue-300 hover:bg-blue-200"
+              >
+                <PenTool className="h-4 w-4 mr-2" />
+                Draft
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => addMarking("done")}
+                className="bg-green-100 border-green-300 hover:bg-green-200"
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                Done
+              </Button>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => {
+                  setSelectedText(null)
+                  if (window.getSelection) {
+                    window.getSelection()?.removeAllRanges()
+                  }
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center gap-2 max-w-4xl mx-auto p-2 w-full h-full">
+              <span className="text-sm text-muted-foreground">Select text to mark a status</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Pagination for chapters (only in marking mode and if chapters exist) */}
+      {chapterRanges.length > 0 && (
+        <div className="flex justify-center my-4">
+          <Pagination>
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  {...(currentChapter === 0
+                    ? {
+                        'aria-disabled': true,
+                        className: 'pointer-events-none opacity-50',
+                      }
+                    : {
+                        onClick: () => setCurrentChapter((i) => Math.max(i - 1, 0)),
+                      })}
+                />
+              </PaginationItem>
+              {chapterRanges.map((chapter, idx) => (
+                <PaginationItem key={chapter.id}>
+                  <button
+                    className={`px-2 py-1 rounded ${currentChapter === idx ? 'font-bold bg-muted' : ''}`}
+                    onClick={() => setCurrentChapter(idx)}
+                  >
+                    {chapter.label}
+                  </button>
+                </PaginationItem>
+              ))}
+              <PaginationItem>
+                <PaginationNext
+                  {...(currentChapter === chapterRanges.length - 1
+                    ? {
+                        'aria-disabled': true,
+                        className: 'pointer-events-none opacity-50',
+                      }
+                    : {
+                        onClick: () => setCurrentChapter((i) => Math.min(i + 1, chapterRanges.length - 1)),
+                      })}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       )}
 
@@ -930,27 +1126,58 @@ export default function Editor() {
       <div className="flex-1 p-6">
         <div className="max-w-4xl mx-auto">
           {isStatusMode ? (
-            // Marking mode - show rendered text with markings
-          <div 
+            // Marking mode - show rendered text with markings for current chapter only
+            <div 
               ref={editorRef}
               className="min-h-[calc(100vh-200px)] text-lg leading-relaxed p-8 border-0 focus-visible:ring-0 whitespace-pre-wrap select-text"
-            style={{ 
-              fontFamily: 'var(--font-geist-sans)',
-              fontSize: '1.125rem',
-              lineHeight: '1.75'
-            }}
-            onMouseUp={handleTextSelection}
-            onKeyUp={handleTextSelection}
+              style={{ 
+                fontFamily: 'var(--font-geist-sans)',
+                fontSize: '1.125rem',
+                lineHeight: '1.75'
+              }}
+              onMouseUp={handleTextSelection}
+              onKeyUp={handleTextSelection}
               onSelect={handleTextSelection}
-          >
-            {renderTextWithMarkings()}
-          </div>
+            >
+              {/* Only render current chapter's text and markings */}
+              {(() => {
+                // Temporarily swap in chapterText and chapterMarkings for rendering
+                const prevText = editorState.text;
+                const prevMarkings = editorState.markings;
+                editorState.text = chapterText;
+                editorState.markings = chapterMarkings;
+                const rendered = renderTextWithMarkings();
+                editorState.text = prevText;
+                editorState.markings = prevMarkings;
+                return rendered;
+              })()}
+            </div>
           ) : (
-            // Edit mode - show textarea for editing
+            // Edit mode - show textarea for editing current chapter only
             <Textarea
               ref={textareaRef}
-              value={editorState.text}
-              onChange={(e) => handleTextChange(e.target.value)}
+              value={chapterText}
+              onChange={(e) => {
+                const newChapterText = e.target.value;
+                const before = editorState.text.slice(0, currentRange.start);
+                const after = editorState.text.slice(currentRange.end);
+                const newText = before + newChapterText + after;
+                const newMarkings = updateMarkingsForChapterEdit(
+                  editorState.text,
+                  newText,
+                  editorState.markings,
+                  currentRange.start,
+                  currentRange.end,
+                  newChapterText
+                );
+                setEditorState(prev => ({
+                  ...prev,
+                  text: newText,
+                  markings: newMarkings
+                }));
+                setEditorText(newText);
+                setChapterTree(parseChaptersFromText(newText));
+              }}
               className="min-h-[calc(100vh-200px)] text-lg leading-relaxed p-8 border-0 focus-visible:ring-0 resize-none"
               style={{ 
                 fontFamily: 'var(--font-geist-sans)',
@@ -960,6 +1187,20 @@ export default function Editor() {
               placeholder="Start writing your story..."
             />
           )}
+          {/* Debug: Show markings for current chapter */}
+          <div className="mt-4 p-2 bg-gray-100 border rounded text-xs text-gray-700">
+            <strong>Debug: Markings for current chapter (offset {currentRange.start}):</strong>
+            <div className="break-all">
+              <span>Indexes: </span>
+              {editorState.markings.slice(currentRange.start, currentRange.end)
+                .map((_, idx) => currentRange.start + idx)
+                .join(", ")}
+            </div>
+           <div className="break-all">
+              <span>Values: </span>
+              {editorState.markings.slice(currentRange.start, currentRange.end).join(", ")}
+           </div>
+          </div>
         </div>
       </div>
 

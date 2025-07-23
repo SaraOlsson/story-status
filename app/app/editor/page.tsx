@@ -140,7 +140,7 @@ export default function Editor() {
   const editorRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const { setEditorText, setChapterTree, editorText, chapterTree } = useEditorContext();
-  const [currentChapter, setCurrentChapter] = useState(0);
+  const { currentChapter, setCurrentChapter } = useEditorContext();
 
   const EDITOR_TEXT_KEY = "storyStatus_editorText";
   const EDITOR_MARKINGS_KEY = "storyStatus_editorMarkings";
@@ -1078,50 +1078,6 @@ export default function Editor() {
         </div>
       )}
 
-      {/* Pagination for chapters (only in marking mode and if chapters exist) */}
-      {chapterRanges.length > 0 && (
-        <div className="flex justify-center my-4">
-          <Pagination>
-            <PaginationContent>
-              <PaginationItem>
-                <PaginationPrevious
-                  {...(currentChapter === 0
-                    ? {
-                        'aria-disabled': true,
-                        className: 'pointer-events-none opacity-50',
-                      }
-                    : {
-                        onClick: () => setCurrentChapter((i) => Math.max(i - 1, 0)),
-                      })}
-                />
-              </PaginationItem>
-              {chapterRanges.map((chapter, idx) => (
-                <PaginationItem key={chapter.id}>
-                  <button
-                    className={`px-2 py-1 rounded ${currentChapter === idx ? 'font-bold bg-muted' : ''}`}
-                    onClick={() => setCurrentChapter(idx)}
-                  >
-                    {chapter.label}
-                  </button>
-                </PaginationItem>
-              ))}
-              <PaginationItem>
-                <PaginationNext
-                  {...(currentChapter === chapterRanges.length - 1
-                    ? {
-                        'aria-disabled': true,
-                        className: 'pointer-events-none opacity-50',
-                      }
-                    : {
-                        onClick: () => setCurrentChapter((i) => Math.min(i + 1, chapterRanges.length - 1)),
-                      })}
-                />
-              </PaginationItem>
-            </PaginationContent>
-          </Pagination>
-        </div>
-      )}
-
       {/* Editor Content */}
       <div className="flex-1 p-6">
         <div className="max-w-4xl mx-auto">
@@ -1187,20 +1143,6 @@ export default function Editor() {
               placeholder="Start writing your story..."
             />
           )}
-          {/* Debug: Show markings for current chapter */}
-          <div className="mt-4 p-2 bg-gray-100 border rounded text-xs text-gray-700">
-            <strong>Debug: Markings for current chapter (offset {currentRange.start}):</strong>
-            <div className="break-all">
-              <span>Indexes: </span>
-              {editorState.markings.slice(currentRange.start, currentRange.end)
-                .map((_, idx) => currentRange.start + idx)
-                .join(", ")}
-            </div>
-           <div className="break-all">
-              <span>Values: </span>
-              {editorState.markings.slice(currentRange.start, currentRange.end).join(", ")}
-           </div>
-          </div>
         </div>
       </div>
 

@@ -14,6 +14,9 @@ interface EditorContextType {
   setChapterTree: (tree: TreeNode[]) => void;
   currentChapter: number;
   setCurrentChapter: (idx: number) => void;
+  editorState: { text: string; markings: number[] };
+  setEditorState: React.Dispatch<React.SetStateAction<{ text: string; markings: number[] }>>;
+  resetEditor: () => void;
 }
 
 const EditorContext = createContext<EditorContextType | undefined>(undefined);
@@ -21,19 +24,27 @@ const EditorContext = createContext<EditorContextType | undefined>(undefined);
 const EDITOR_TEXT_KEY = "storyStatus_editorText";
 const CHAPTER_TREE_KEY = "storyStatus_chapterTree";
 
-export const EditorContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [editorText, setEditorTextState] = useState("");
-  const [chapterTree, setChapterTreeState] = useState<TreeNode[]>([]);
+export const EditorProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [editorText, setEditorText] = useState("");
+  const [chapterTree, setChapterTree] = useState<TreeNode[]>([]);
   const [currentChapter, setCurrentChapter] = useState(0);
+  const [editorState, setEditorState] = useState<{ text: string; markings: number[] }>({ text: "", markings: [] });
+
+  const resetEditor = () => {
+    setEditorText("");
+    setChapterTree([]);
+    setCurrentChapter(0);
+    setEditorState({ text: "", markings: [] });
+  };
 
   // Load from localStorage on mount
   useEffect(() => {
     const savedText = localStorage.getItem(EDITOR_TEXT_KEY);
     const savedTree = localStorage.getItem(CHAPTER_TREE_KEY);
-    if (savedText) setEditorTextState(savedText);
+    if (savedText) setEditorText(savedText);
     if (savedTree) {
       try {
-        setChapterTreeState(JSON.parse(savedTree));
+        setChapterTree(JSON.parse(savedTree));
       } catch {}
     }
   }, []);
@@ -46,16 +57,8 @@ export const EditorContextProvider: React.FC<{ children: React.ReactNode }> = ({
     localStorage.setItem(CHAPTER_TREE_KEY, JSON.stringify(chapterTree));
   }, [chapterTree]);
 
-  // Wrapped setters
-  const setEditorText = (text: string) => {
-    setEditorTextState(text);
-  };
-  const setChapterTree = (tree: TreeNode[]) => {
-    setChapterTreeState(tree);
-  };
-
   return (
-    <EditorContext.Provider value={{ editorText, setEditorText, chapterTree, setChapterTree, currentChapter, setCurrentChapter }}>
+    <EditorContext.Provider value={{ editorText, setEditorText, chapterTree, setChapterTree, currentChapter, setCurrentChapter, editorState, setEditorState, resetEditor }}>
       {children}
     </EditorContext.Provider>
   );

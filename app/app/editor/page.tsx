@@ -1126,13 +1126,20 @@ export default function Editor() {
                   currentRange.end,
                   newChapterText
                 );
+                // Detect if a new chapter was added
+                const prevChapters = parseChaptersFromText(editorState.text);
+                const newChapters = parseChaptersFromText(newText);
                 setEditorState(prev => ({
                   ...prev,
                   text: newText,
                   markings: newMarkings
                 }));
                 setEditorText(newText);
-                setChapterTree(parseChaptersFromText(newText));
+                setChapterTree(newChapters);
+                // If a new chapter was added, activate it
+                if (newChapters.length > prevChapters.length) {
+                  setCurrentChapter(newChapters.length - 1);
+                }
               }}
               className="min-h-[calc(100vh-200px)] text-lg leading-relaxed p-8 border-0 focus-visible:ring-0 resize-none"
               style={{ 

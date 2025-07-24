@@ -39,7 +39,7 @@ const items = [
 
 export function AppSidebar() {
   const [selected, setSelected] = useState("dashboard");
-  const { editorText, currentChapter, setCurrentChapter } = useEditorContext();
+  const { editorText, currentChapter, resetEditor, editorState, setEditorState, setEditorText, setChapterTree, setCurrentChapter } = useEditorContext();
 
   // Calculate chapter ranges (copied from editor logic)
   const chapterRanges = useMemo(() => {
@@ -68,12 +68,60 @@ export function AppSidebar() {
     return ranges;
   }, [editorText]);
 
+  // Clear local data for a new story
+  const handleNewStory = () => {
+    resetEditor();
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('storyStatus_editorText');
+      localStorage.removeItem('storyStatus_editorMarkings');
+    }
+  };
+
+  // Add new chapter handler
+  const handleAddChapter = () => {
+    const chapterTemplate = (editorText.trim().length > 0 ? '\n' : '') + '## New Chapter\n\n';
+    const newText = editorText + chapterTemplate;
+    // Expand markings array with zeroes for new chars
+    const newMarkings = [...(editorState.markings || [])];
+    for (let i = 0; i < chapterTemplate.length; i++) {
+      newMarkings.push(0);
+    }
+    setEditorState({ text: newText, markings: newMarkings });
+    setEditorText(newText);
+    const chapters = (() => {
+      const lines = newText.split(/\r?\n/);
+      const chapters = [];
+      for (let idx = 0; idx < lines.length; idx++) {
+        const match = lines[idx].match(/^##\s+(.*)/);
+        if (match) {
+          chapters.push({ id: `chapter-${idx}`, label: match[1], children: [] });
+        }
+      }
+      return chapters;
+    })();
+    setChapterTree(chapters);
+    // Set current chapter to the last one (the new one)
+    setCurrentChapter(chapters.length - 1);
+  };
+
   return (
     <Sidebar>
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel>Application</SidebarGroupLabel>
           <SidebarGroupContent>
+            <button
+              className="w-full mb-2 px-2 py-1 rounded bg-muted hover:bg-accent transition-colors text-left font-medium"
+              onClick={handleNewStory}
+            >
+              + New Story
+            </button>
+            <button
+              className="w-full mb-2 px-2 py-1 rounded bg-muted hover:bg-accent transition-colors text-left font-medium"
+              onClick={handleAddChapter}
+            >
+              + New Chapter
+            </button>
             <SidebarMenu>
               {items.map((item) => (
                 <SidebarMenuItem key={item.title}>
@@ -103,7 +151,7 @@ export function AppSidebar() {
                       className={`px-2 py-1 rounded w-full text-left ${currentChapter === idx ? 'font-bold bg-muted' : ''}`}
                       onClick={() => setCurrentChapter(idx)}
                     >
-                      {chapter.label}
+                      {chapter.label && chapter.label.trim().length > 0 ? chapter.label : '(new chapter)'}
                     </button>
                   ))}
                 </div>
